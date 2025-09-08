@@ -1,5 +1,9 @@
-// app/rate/page.jsx (หรือที่คุณวาง RatePage เอาไว้)
+// app/rate/page.jsx
 "use client";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -27,7 +31,7 @@ export default function RatePage() {
         setLoading(true);
         setErr("");
 
-        // ✅ ต้อง include คุกกี้
+        // โหลดสถานะผู้ใช้ (ต้อง include คุกกี้)
         const meRes = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
         const meData = await meRes.json().catch(() => ({}));
         if (!meData?.user) {
@@ -37,8 +41,8 @@ export default function RatePage() {
         }
         if (!ignore) setMe(meData.user);
 
+        // โหลดข้อมูลการจอง
         if (bookingId) {
-          // ✅ ต้อง include คุกกี้ + แสดง error ถ้าไม่ ok
           const res = await fetch(`/api/bookings/${bookingId}`, {
             cache: "no-store",
             credentials: "include",
@@ -56,11 +60,11 @@ export default function RatePage() {
         if (!ignore) setLoading(false);
       }
     })();
-    return () => (ignore = true);
+    return () => { ignore = true; };
   }, [bookingId, router]);
 
   const canSubmit = useMemo(
-    () => bookingId && Number.isFinite(Number(stars)) && stars >= 1 && stars <= 5 && !saving,
+    () => Boolean(bookingId) && Number.isFinite(Number(stars)) && stars >= 1 && stars <= 5 && !saving,
     [bookingId, stars, saving]
   );
 
@@ -70,7 +74,6 @@ export default function RatePage() {
     if (!canSubmit) return;
     try {
       setSaving(true);
-      // ✅ include คุกกี้ด้วย
       const res = await fetch("/api/ratings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -102,6 +105,8 @@ export default function RatePage() {
     </button>
   );
 
+  const dateStr = (d) => (d ? new Date(d).toISOString().slice(0,10) : "—");
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-fuchsia-50 via-rose-50 to-indigo-50">
       <Navbar />
@@ -131,7 +136,7 @@ export default function RatePage() {
               <div className="border rounded-xl p-4">
                 <div className="font-semibold">{bk.post?.title || "โพสต์"}</div>
                 <div className="text-sm text-gray-600">
-                  เจ้าของโพสต์: {bk.owner?.username || "—"} • วันที่ {bk.date ? String(bk.date).slice(0,10) : "—"}
+                  เจ้าของโพสต์: {bk.owner?.username || "—"} • วันที่ {dateStr(bk.date)}
                 </div>
               </div>
             ) : (
