@@ -1,89 +1,118 @@
-// app/api/bookings/[id]/route.js
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
-import { getAuthUser } from "../../../../../lib/auth";
 import { connectMongoDB } from "../../../../../lib/mongodb";
+import { getAuthUser } from "../../../../../lib/auth";
 import Booking from "../../../../../models/booking";
-import User from "../../../../../models/user";
 
-export async function PATCH(req, { params }) {
-  const auth = getAuthUser();
+export const dynamic = "force-dynamic";
 
-  if (!auth?.userId || !mongoose.Types.ObjectId.isValid(auth.userId)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = auth.userId; // ใช้ userId ต่อได้เลย
-  const id = params.id;
-
-  const { action } = await req.json().catch(() => ({}));
-  if (!["confirm", "cancel", "complete"].includes(action)) {
-    return NextResponse.json({ error: "invalid action" }, { status: 400 });
-  }
-
-  // จากตรงนี้ก็ใช้ userId ได้ เช่น
-  // Booking.findOne({ _id: id, owner: userId }
-
-  const bk = await Booking.findById(id)
-    .populate("owner", "_id")
-    .populate("renter", "_id");
-  if (!bk) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (String(bk.owner._id) !== String(user._id)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-
-  if (action === "confirm") {
-    if (bk.status !== "pending") {
-      return NextResponse.json({ error: "invalid state" }, { status: 400 });
-    }
-    bk.status = "confirmed";
-    bk.ownerConfirmed = true;
-    await bk.save();
-    return NextResponse.json({ ok: true });
-  }
-
-  if (action === "cancel") {
-    if (bk.status === "completed" || bk.status === "cancelled") {
-      return NextResponse.json({ error: "already final" }, { status: 400 });
-    }
-    bk.status = "cancelled";
-    await bk.save();
-    return NextResponse.json({ ok: true });
-  }
-
-  // action === "complete"
-  if (bk.status !== "confirmed") {
-    return NextResponse.json({ error: "invalid state" }, { status: 400 });
-  }
-
-  // คำนวณยอดที่จะเข้ากระเป๋า (จะหักค่าธรรมเนียมก็ปรับตรงนี้)
-  const amount = Number(bk.totalPrice) || 0;
-  const fee = 0; // ตัวอย่าง: ถ้ามีค่าธรรมเนียม 10% => const fee = Math.round(amount * 0.1)
-  const credit = amount - fee;
-
-  const session = await mongoose.startSession();
+// (ออปชัน) ดึงทีละอัน
+export async function GET(_req, { params }) {
   try {
-    await session.withTransaction(async () => {
-      // ปิดงาน
-      await Booking.updateOne(
-        { _id: bk._id, status: "confirmed" },
-        { $set: { status: "completed", completedAt: new Date() } },
-        { session }
-      );
-
-      // เติมเงินให้เจ้าของโพสต์
-      await User.updateOne(
-        { _id: bk.owner._id },
-        { $inc: { balance: credit } },        // ต้องมี field balance ใน user
-        { session }
-      );
-    });
-
-    return NextResponse.json({ ok: true, amountCredited: credit });
+    const { id } = params || {};
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    }
+    await connectMongoDB();
+    const b = await Booking.findById(id)
+      .populate({ path: "post", select: "_id title img price" })
+      .populate({ path: "owner", select: "_id username" })
+      .populate({ path: "renter", select: "_id username" })
+      .lean();
+    if (!b) return NextResponse.json({ error: "not found" }, { status: 404 });
+    return NextResponse.json(b, { status: 200 });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: "update failed" }, { status: 500 });
-  } finally {
-    session.endSession();
+    console.error("GET /api/bookings/:id error:", e);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH /api/bookings/:id
+ * body: { action: "confirm" | "cancel" }
+ * - confirm: ใครกดก็จะติ๊กฝั่งตนเอง (owner/renter) เป็น true
+ *   ถ้าครบสองฝั่ง → ปล่อยเงิน + completed
+ * - cancel: ใครก็กดยกเลิกได้ (ยังไม่อนุมัติ) → cancelled
+ */
+export async function PATCH(req, { params }) {
+  try {
+    const auth = getAuthUser(); // ใช้แบบเดิมตามโปรเจ็กต์คุณ
+    if (!auth?.userId || !mongoose.Types.ObjectId.isValid(auth.userId)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = params || {};
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    }
+
+    const { action } = await req.json().catch(() => ({}));
+    if (!action) {
+      return NextResponse.json({ error: "missing action" }, { status: 400 });
+    }
+
+    await connectMongoDB();
+    const b = await Booking.findById(id);
+    if (!b) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+    const isOwner  = String(b.owner)  === String(auth.userId);
+    const isRenter = String(b.renter) === String(auth.userId);
+    if (!isOwner && !isRenter) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+
+    // ป้องกันแก้จองที่ปิดไปแล้ว
+    if (["completed", "cancelled"].includes(b.status)) {
+      return NextResponse.json({ error: "booking already closed" }, { status: 400 });
+    }
+
+    if (action === "cancel") {
+      b.status = "cancelled";
+      b.paymentStatus = "unpaid";
+      await b.save();
+      return NextResponse.json({ ok: true, booking: { id: b._id, status: b.status } }, { status: 200 });
+    }
+
+    if (action === "confirm") {
+      if (isOwner)  b.ownerConfirmed  = true;
+      if (isRenter) b.renterConfirmed = true;
+
+      // ถ้าครบสองฝั่ง → ปล่อยเงิน + ปิดงาน
+      if (b.ownerConfirmed && b.renterConfirmed && !b.bothConfirmedAt) {
+        const now = new Date();
+        b.bothConfirmedAt = now;
+
+        b.paymentStatus = "released";
+        b.payoutAmount  = b.totalPrice;
+        b.payoutAt      = now;
+
+        b.status      = "completed";
+        b.completedAt = now;
+      }
+
+      await b.save();
+      return NextResponse.json({
+        ok: true,
+        booking: {
+          id: b._id,
+          status: b.status,
+          renterConfirmed: b.renterConfirmed,
+          ownerConfirmed: b.ownerConfirmed,
+          bothConfirmedAt: b.bothConfirmedAt,
+          paymentStatus: b.paymentStatus,
+          payoutAmount: b.payoutAmount,
+          payoutAt: b.payoutAt,
+        }
+      }, { status: 200 });
+    }
+
+    return NextResponse.json({ error: "unknown action" }, { status: 400 });
+  } catch (e) {
+    console.error("PATCH /api/bookings/:id error:", e);
+    const isValidation = e?.name === "ValidationError" || e?.name === "MongoServerError";
+    return NextResponse.json(
+      { error: String(e?.message || e) },
+      { status: isValidation ? 400 : 500 }
+    );
   }
 }
