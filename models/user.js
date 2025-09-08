@@ -11,8 +11,8 @@ const userSchema = new Schema({
 }, { timestamps: true });
 
 // เผื่อบางกรณีที่ MongoDB ยังไม่ได้สร้าง index
-userSchema.index({ username: 1 }, { unique: true });
-userSchema.index({ email: 1 }, { unique: true });
+//userSchema.index({ username: 1 }, { unique: true });
+// userSchema.index({ email: 1 }, { unique: true });
 
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 export default User;
