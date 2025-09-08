@@ -1,16 +1,23 @@
 // app/rate/page.jsx
 "use client";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-export const fetchCache = "force-no-store";
+export const dynamic = "force-dynamic"; // ✅ ใช้ตัวนี้พอสำหรับหน้าที่ dynamic
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "../components/nav";
 
+// ---- Wrapper มี Suspense ครอบ เพื่อให้ useSearchParams ถูกต้องเวลาพรีเรนเดอร์ ----
 export default function RatePage() {
+  return (
+    <Suspense fallback={<div className="p-6">กำลังโหลด…</div>}>
+      <RatePageInner />
+    </Suspense>
+  );
+}
+
+function RatePageInner() {
   const router = useRouter();
   const sp = useSearchParams();
   const bookingId = sp.get("booking");
@@ -31,7 +38,7 @@ export default function RatePage() {
         setLoading(true);
         setErr("");
 
-        // โหลดสถานะผู้ใช้ (ต้อง include คุกกี้)
+        // โหลดสถานะผู้ใช้ (include คุกกี้)
         const meRes = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
         const meData = await meRes.json().catch(() => ({}));
         if (!meData?.user) {
