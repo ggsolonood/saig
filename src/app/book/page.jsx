@@ -1,8 +1,7 @@
 // app/book/page.jsx
 "use client";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const dynamic = "force-dynamic"; // ✅ ใช้ตัวนี้พอ ไม่ต้อง export revalidate ใน client
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -11,9 +10,6 @@ import Navbar from "../components/nav";
 
 const isHex24 = (s) => /^[a-f0-9]{24}$/i.test(String(s || "").trim());
 
-/* ===== Helpers: จัดการวันที่จาก availability ===== */
-
-// กันปี พ.ศ. และปีเพี้ยน
 function normalizeYear(y) {
   if (!Number.isFinite(y)) return null;
   if (y >= 2400) y -= 543; // พ.ศ. → ค.ศ.
@@ -21,7 +17,6 @@ function normalizeYear(y) {
   return y;
 }
 
-// y,m,d -> Date(UTC 00:00) ปลอดภัย
 function dateOnlyFromYMDUTC(y, m, d) {
   y = normalizeYear(Number(y));
   m = Number(m);
@@ -33,14 +28,12 @@ function dateOnlyFromYMDUTC(y, m, d) {
   return dt;
 }
 function toDateOnlyUTCStr(dt) {
-  return dt.toISOString().slice(0, 10); // YYYY-MM-DD
+  return dt.toISOString().slice(0, 10);
 }
 
-// แปลง input หลายรูปแบบ → {y,m,d}
 function parseAnyDateToYMD(slot) {
   if (slot == null) return null;
 
-  // 0) รูปแบบ Mongo JSON { $date: "..." }
   if (typeof slot === "object" && "$date" in slot && typeof slot.$date === "string") {
     const dt = new Date(slot.$date);
     if (!Number.isNaN(dt.getTime())) {
@@ -49,11 +42,10 @@ function parseAnyDateToYMD(slot) {
     return null;
   }
 
-  // 1) string 'YYYY-MM-DD'
   if (typeof slot === "string") {
     const m = slot.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (m) return { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) };
-    // 1.1) ISO string
+
     const dt = new Date(slot);
     if (!Number.isNaN(dt.getTime())) {
       return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
@@ -61,7 +53,6 @@ function parseAnyDateToYMD(slot) {
     return null;
   }
 
-  // 2) number epoch ms
   if (typeof slot === "number" && Number.isFinite(slot)) {
     const dt = new Date(slot);
     if (!Number.isNaN(dt.getTime())) {
@@ -70,7 +61,6 @@ function parseAnyDateToYMD(slot) {
     return null;
   }
 
-  // 3) Date instance
   if (slot instanceof Date) {
     if (!Number.isNaN(slot.getTime())) {
       return { y: slot.getUTCFullYear(), m: slot.getUTCMonth() + 1, d: slot.getUTCDate() };
@@ -78,10 +68,8 @@ function parseAnyDateToYMD(slot) {
     return null;
   }
 
-  // 4) object {y,m,d} / {year,month,day} / {date:{...}} / {date:{ $date:"..." }}
   if (typeof slot === "object") {
     const s = slot.date ? slot.date : slot;
-    // ถ้าเป็น {date:{ $date: "..." }}
     if (s && typeof s === "object" && "$date" in s) {
       return parseAnyDateToYMD(s);
     }
@@ -129,7 +117,7 @@ function buildAllowedDates(post) {
 
   const set = new Set();
   for (const s of slots) {
-    const one = slotToDateOnlyStr(s?.date ?? s); // เผื่อเป็น {date: ...} หรือค่าเดี่ยว
+    const one = slotToDateOnlyStr(s?.date ?? s);
     if (one) {
       set.add(one);
       continue;
@@ -186,7 +174,7 @@ export default function BookPage() {
           const p = await pRes.json();
           if (!ignore) setPost(p);
 
-          // Debug ช่วยดูว่า availability ส่งมาหรือไม่
+          // Debug availability
           if (p?.availability) {
             // eslint-disable-next-line no-console
             console.log("availability sample:", p.availability.slice?.(0, 3));
