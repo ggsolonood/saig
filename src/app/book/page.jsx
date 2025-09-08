@@ -10,7 +10,6 @@ import Navbar from "../components/nav";
 
 const isHex24 = (s) => /^[a-f0-9]{24}$/i.test(String(s || "").trim());
 
-// ---------- helpers (คงเดิม) ----------
 function normalizeYear(y) {
   if (!Number.isFinite(y)) return null;
   if (y >= 2400) y -= 543;
@@ -87,9 +86,7 @@ function buildAllowedDates(post) {
   }
   return Array.from(set).sort();
 }
-// --------------------------------------
 
-// ✅ Wrapper มี Suspense ครอบ เพื่อให้ใช้ useSearchParams ได้อย่างถูกต้อง
 export default function BookPageWrapper() {
   return (
     <Suspense fallback={<div className="p-6">กำลังโหลด…</div>}>
@@ -98,7 +95,6 @@ export default function BookPageWrapper() {
   );
 }
 
-// 🔽 ตัวจริงของหน้า (ใช้ useSearchParams ข้างใน ซึ่งถูกครอบด้วย Suspense แล้ว)
 function BookPage() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -160,29 +156,46 @@ function BookPage() {
   }, [postId, router]);
 
   const submitBooking = async (e) => {
-    e.preventDefault();
-    setErr("");
+  e.preventDefault();
+  setErr("");
 
-    if (!postId || !isHex24(postId)) { setErr("postId ไม่ถูกต้อง"); return; }
-    if (!date || !hours) { setErr("กรุณากรอกวันที่และจำนวนชั่วโมง"); return; }
-    if (allowedDates.length > 0 && !allowedDates.includes(date)) {
-      setErr("วันที่ที่เลือกไม่ตรงกับวันที่ผู้ลงโพสต์เปิดรับจอง");
+  if (!postId || !isHex24(postId)) { setErr("postId ไม่ถูกต้อง"); return; }
+  if (!date || !hours) { setErr("กรุณากรอกวันที่และจำนวนชั่วโมง"); return; }
+  if (allowedDates.length > 0 && !allowedDates.includes(date)) {
+    setErr("วันที่ที่เลือกไม่ตรงกับวันที่ผู้ลงโพสต์เปิดรับจอง");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/bookings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        postId,
+        date,                       // รูปแบบ YYYY-MM-DD ตามที่คุณส่งอยู่ OK
+        hours: Number(hours),
+        notes: note.trim(),
+      }),
+    });
+
+    // 🆕 ดักกรณีถูกจองแล้ว (API คืน 409)
+    if (res.status === 409) {
+      const data = await res.json().catch(() => ({}));
+      setErr(data?.error || "มีคนจองแล้วในวันดังกล่าว");
       return;
     }
 
-    try {
-      const res = await fetch("/api/bookings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId, date, hours: Number(hours), notes: note.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || data?.message || "จองไม่สำเร็จ");
-      router.push("/book");
-    } catch (e) {
-      setErr(e.message || "จองไม่สำเร็จ");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || data?.message || "จองไม่สำเร็จ");
     }
-  };
+
+    router.push("/book");
+  } catch (e) {
+    setErr(e.message || "จองไม่สำเร็จ");
+  }
+};
+
 
   const mode = useMemo(() => (postId ? "form" : "list"), [postId]);
 

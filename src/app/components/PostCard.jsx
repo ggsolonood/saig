@@ -16,9 +16,8 @@ export default function PostCard({
   hrefBase = "/posts",
   showDetailLink = true,
 
-  // ⬇️ เพิ่มพร็อพสำหรับเรตติ้ง
-  ratingAvg = 0,      // ค่ากลาง 0..5 (float ได้)
-  ratingCount = 0,    // จำนวนรีวิว
+  ratingAvg = 0,      
+  ratingCount = 0,   
 }) {
   const [imgError, setImgError] = useState(false);
 
